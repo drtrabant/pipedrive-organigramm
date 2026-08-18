@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Organigramm</title>
+<script src="https://cdn.jsdelivr.net/npm/@pipedrive/app-extensions-sdk@0/dist/index.umd.js"></script>
+<style>
+  :root { --line:#d0d4d9; --text:#26292c; --muted:#6c7076; --green:#017737; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px 24px 32px; font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif; color:var(--text); font-size:14px; background:#fff; }
+  #app { max-width:760px; margin:0 auto; }
+  .row { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .box { display:inline-block; padding:10px 18px; border:1px solid var(--line); border-radius:8px; background:#fff; text-decoration:none; color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.06); max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .box:hover { border-color:var(--green); }
+  .box.focal { border:2px solid var(--green); font-weight:600; color:var(--green); }
+  .box.related { border-style:dashed; color:var(--muted); }
+  .connector { width:2px; height:22px; background:var(--line); margin:3px auto; }
+  .section-title { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); text-align:center; }
+  .section-title.spaced { margin-top:28px; }
+  .empty, .status { color:var(--muted); text-align:center; padding:14px 4px 4px; }
+  .empty span { font-size:12px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="status">Organigramm wird geladen …</div></div>
+<script>
+// ===== KONFIGURATION =====
+var WEBHOOK_URL = 'https://ovb.app.n8n.cloud/webhook/pipedrive-organigramm';
+var PIPEDRIVE_BASE_URL = 'https://app.pipedrive.com';
+var SHARED_SECRET = ''; // muss dem Wert im n8n-Node "Kontext prüfen" entsprechen (leer = deaktiviert)
+var MAX_HOEHE = 900;
+var FETCH_TIMEOUT_MS = 6500; // SDK muss sich innerhalb von 10 s melden
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function box(org, cls) {
+  return '<a class="box ' + cls + '" title="' + esc(org.name) + '" href="' +
+    PIPEDRIVE_BASE_URL + '/organization/' + org.id +
+    '" target="_blank" rel="noopener">' + esc(org.name) + '</a>';
+}
+
+function render(d) {
+  var html = '';
+  var parents = d.parents || [];
+  var daughters = d.daughters || [];
+  var related = d.related || [];
+
+  if (parents.length) {
+    html += '<div class="section-title">Muttergesellschaft' + (parents.length > 1 ? 'en' : '') + '</div>';
+    html += '<div class="row">' + parents.map(function (o) { return box(o, 'parent'); }).join('') + '</div>';
+    html += '<div class="connector"></div>';
+  }
+  html += '<div class="row">' + box(d.focal, 'focal') + '</div>';
+  if (daughters.length) {
+    html += '<div class="connector"></div>';
+    html += '<div class="section-title">Tochtergesellschaft' + (daughters.length > 1 ? 'en' : '') + '</div>';
+    html += '<div class="row">' + daughters.map(function (o) { return box(o, 'daughter'); }).join('') + '</div>';
+  }
+  if (related.length) {
+    html += '<div class="section-title spaced">Verbundene Organisationen</div>';
+    html += '<div class="row">' + related.map(function (o) { return box(o, 'related'); }).join('') + '</div>';
+  }
+  if (!parents.length && !daughters.length && !related.length) {
+    html += '<div class="empty">Für diese Organisation sind keine verknüpften Organisationen hinterlegt.<br><span>Beziehungen können in Pipedrive im Bereich „Verwandte Organisationen“ gepflegt werden.</span></div>';
+  }
+  document.getElementById('app').innerHTML = html;
+}
+
+function renderFehler(msg) {
+  document.getElementById('app').innerHTML = '<div class="status">&#9888;&#65039; ' + esc(msg) + '</div>';
+}
+
+(async function () {
+  var q = new URLSearchParams(location.search);
+
+  // 1. Daten vom n8n-Webhook holen (mit Timeout, damit das 10-s-SDK-Budget haelt)
+  try {
+    var params = new URLSearchParams({
+      selectedIds: q.get('selectedIds') || '',
+      companyId: q.get('companyId') || '',
+      userId: q.get('userId') || '',
+      token: q.get('token') || ''
+    });
+    if (SHARED_SECRET) params.set('secret', SHARED_SECRET);
+
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+    var resp = await fetch(WEBHOOK_URL + '?' + params.toString(), { signal: ctrl.signal });
+    clearTimeout(timer);
+
+    var data = await resp.json();
+    if (data && data.ok) {
+      render(data);
+    } else {
+      renderFehler((data && data.error) || 'Daten konnten nicht geladen werden.');
+    }
+  } catch (e) {
+    renderFehler('Daten konnten nicht geladen werden (Webhook nicht erreichbar oder Zeitüberschreitung).');
+  }
+
+  // 2. SDK initialisieren – erst nach dem Rendern, damit die Hoehe passt
+  try {
+    var Ctor = (window.AppExtensionsSDK && window.AppExtensionsSDK.default) || window.AppExtensionsSDK;
+    var h = Math.min(Math.max(document.body.scrollHeight + 24, 220), MAX_HOEHE);
+    await new Ctor().initialize({ size: { height: h } });
+  } catch (e) { /* Seite wurde ausserhalb von Pipedrive geoeffnet */ }
+})();
+</script>
+</body>
+</html>
