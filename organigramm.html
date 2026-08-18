@@ -27,7 +27,9 @@
 <script>
 // ===== KONFIGURATION =====
 var WEBHOOK_URL = 'https://ovb.app.n8n.cloud/webhook/pipedrive-organigramm';
-var PIPEDRIVE_BASE_URL = 'https://app.pipedrive.com';
+var PIPEDRIVE_BASE_URL = 'https://app.pipedrive.com'; // nur Fallback ausserhalb von Pipedrive; im Modal navigiert das SDK im richtigen Account
+var MODAL_BREITE = 980;
+var MIN_HOEHE = 480;
 var SHARED_SECRET = ''; // muss dem Wert im n8n-Node "Kontext prüfen" entsprechen (leer = deaktiviert)
 var MAX_HOEHE = 900;
 var FETCH_TIMEOUT_MS = 6500; // SDK muss sich innerhalb von 10 s melden
@@ -39,7 +41,7 @@ function esc(s) {
 }
 
 function box(org, cls) {
-  return '<a class="box ' + cls + '" title="' + esc(org.name) + '" href="' +
+  return '<a class="box ' + cls + '" data-org-id="' + org.id + '" title="' + esc(org.name) + '" href="' +
     PIPEDRIVE_BASE_URL + '/organization/' + org.id +
     '" target="_blank" rel="noopener">' + esc(org.name) + '</a>';
 }
@@ -75,6 +77,8 @@ function renderFehler(msg) {
   document.getElementById('app').innerHTML = '<div class="status">&#9888;&#65039; ' + esc(msg) + '</div>';
 }
 
+var sdk = null;
+
 (async function () {
   var q = new URLSearchParams(location.search);
 
@@ -106,10 +110,19 @@ function renderFehler(msg) {
   // 2. SDK initialisieren – erst nach dem Rendern, damit die Hoehe passt
   try {
     var Ctor = (window.AppExtensionsSDK && window.AppExtensionsSDK.default) || window.AppExtensionsSDK;
-    var h = Math.min(Math.max(document.body.scrollHeight + 24, 220), MAX_HOEHE);
-    await new Ctor().initialize({ size: { height: h } });
+    var h = Math.min(Math.max(document.body.scrollHeight + 24, MIN_HOEHE), MAX_HOEHE);
+    sdk = await new Ctor().initialize({ size: { height: h, width: MODAL_BREITE } });
   } catch (e) { /* Seite wurde ausserhalb von Pipedrive geoeffnet */ }
 })();
+
+document.addEventListener('click', function (ev) {
+  var a = ev.target.closest ? ev.target.closest('a.box') : null;
+  if (!a || !sdk) return; // ohne SDK: normaler Link (Fallback)
+  ev.preventDefault();
+  var id = parseInt(a.getAttribute('data-org-id'), 10);
+  sdk.execute('redirect_to', { view: 'organizations', id: id })
+    .catch(function () { window.open(a.href, '_blank', 'noopener'); });
+});
 </script>
 </body>
 </html>
