@@ -57,11 +57,20 @@ function box(org, cls) {
     '" target="_blank" rel="noopener">' + esc(org.name) + badge(org.kategorie) + '</a>';
 }
 
+function sortOrgs(list) {
+  return list.slice().sort(function (a, b) {
+    var aA = a.kategorie === 'Agentur' ? 0 : 1;
+    var bA = b.kategorie === 'Agentur' ? 0 : 1;
+    if (aA !== bA) return aA - bA;
+    return String(a.name).localeCompare(String(b.name), 'de');
+  });
+}
+
 function render(d) {
   var html = '';
-  var parents = d.parents || [];
-  var daughters = d.daughters || [];
-  var related = d.related || [];
+  var parents = sortOrgs(d.parents || []);
+  var daughters = sortOrgs(d.daughters || []);
+  var related = sortOrgs(d.related || []);
 
   if (parents.length) {
     html += '<div class="section-title">Muttergesellschaft' + (parents.length > 1 ? 'en' : '') + '</div>';
@@ -75,7 +84,7 @@ function render(d) {
     html += '<div class="row">' + daughters.map(function (o) { return box(o, 'daughter'); }).join('') + '</div>';
   }
   if (related.length) {
-    html += '<div class="section-title spaced">Verbundene Organisationen</div>';
+    html += '<div class="section-title spaced">Verbundene Organisationen (' + related.length + ')</div>';
     html += '<div class="row">' + related.map(function (o) { return box(o, 'related'); }).join('') + '</div>';
   }
   if (!parents.length && !daughters.length && !related.length) {
@@ -132,6 +141,7 @@ document.addEventListener('click', function (ev) {
   ev.preventDefault();
   var id = parseInt(a.getAttribute('data-org-id'), 10);
   sdk.execute('redirect_to', { view: 'organizations', id: id })
+    .then(function () { return sdk.execute('close_modal'); })
     .catch(function () { window.open(a.href, '_blank', 'noopener'); });
 });
 </script>
